@@ -74,15 +74,16 @@ class RequestScope(Scope):
         finally:
             self._exit()
 
+class _SeededKeyProvider(Provider):
+
+    def get(self, injector: 'Injector') -> T:
+        # https://github.com/google/guice/wiki/CustomScopes#implementing-scope
+        raise RequestScopeError("If you got here then it means that" +
+              " your code asked for scoped object which should have been" +
+              " explicitly seeded in this scope but was not.")
+
+
 request_scope = ScopeDecorator(RequestScope)
-
-class RequestModule(Module):
-
-    @provider
-    @request_scope
-    def provide_request_id(self) -> Request:
-        # The Request should have been populated in RequestMiddleware.
-        return _get_cache()[Request]
 
 # It is probably feasible to eliminate RequestMiddleware and enter RequestScope contextmanager
 # in injector_endpoint. But that would mean entering the request scope relatively late, i.e. after
@@ -92,6 +93,8 @@ class RequestMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, injector: Injector):
         super().__init__(app)
         self.request_scope = injector.get(RequestScope)
+        # https://github.com/google/guice/wiki/CustomScopes#implementing-scope
+        injector.binder.bind(Request, to=_SeededKeyProvider(), scope=RequestScope)
 
     async def dispatch(self, request, call_next):
         async with self.request_scope.manager(request):
